@@ -18,7 +18,7 @@
         <main-class>org.ebyhr.puffin.PuffinTools</main-class>
         <air.check.skip-pmd>true</air.check.skip-pmd>
         <dep.iceberg.version>1.8.1</dep.iceberg.version>
-        <dep.jackson.version>2.18.2</dep.jackson.version>
+        <dep.jackson.version>2.18.3</dep.jackson.version>
         <dep.slf4j.version>2.0.16</dep.slf4j.version>
     </properties>
 
