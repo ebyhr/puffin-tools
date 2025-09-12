@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 
+import static org.apache.iceberg.puffin.StandardBlobTypes.APACHE_DATASKETCHES_THETA_V1;
 import static org.apache.iceberg.puffin.StandardBlobTypes.DV_V1;
 
 @Command(
@@ -59,9 +60,16 @@ public class Console
         try {
             InputFile inputFile = Files.localInput(path);
             try (PuffinReader reader = Puffin.read(inputFile).build()) {
-                // metadata
                 FileMetadata metadata = reader.fileMetadata();
-                for (BlobMetadata blobMetadata : metadata.blobs()) {
+
+                // properties
+                System.out.println("=== properties ===");
+                System.out.println(metadata.properties());
+
+                // blobs
+                for (Pair<BlobMetadata, ByteBuffer> read : reader.readAll(metadata.blobs())) {
+                    System.out.println("\n=== blob ===");
+                    BlobMetadata blobMetadata = read.first();
                     System.out.println("type: " + blobMetadata.type());
                     System.out.println("inputFields: " + blobMetadata.inputFields());
                     System.out.println("snapshotId: " + blobMetadata.snapshotId());
@@ -70,14 +78,12 @@ public class Console
                     System.out.println("length: " + blobMetadata.length());
                     System.out.println("compressionCodec: " + blobMetadata.compressionCodec());
                     System.out.println("properties: " + blobMetadata.properties());
-                    System.out.println();
-                }
-                System.out.println("properties: " + metadata.properties());
-                // blobs
-                for (Pair<BlobMetadata, ByteBuffer> read : reader.readAll(metadata.blobs())) {
-                    BlobMetadata blobMetadata = read.first();
-                    System.out.println("type: " + blobMetadata.type());
-                    if (blobMetadata.type().equals(DV_V1)) {
+
+                    if (blobMetadata.type().equals(APACHE_DATASKETCHES_THETA_V1)) {
+                        String ndv = blobMetadata.properties().get("ndv");
+                        System.out.println("ndv: " + ndv);
+                    }
+                    else if (blobMetadata.type().equals(DV_V1)) {
                         ByteBuffer buffer = read.second();
                         int bitmapDataLength = buffer.getInt();
                         RoaringPositionBitmaps bitmap = deserializeBitmap(buffer.array(), bitmapDataLength);
