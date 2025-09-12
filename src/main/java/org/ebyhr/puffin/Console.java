@@ -14,16 +14,24 @@
 package org.ebyhr.puffin;
 
 import org.apache.iceberg.Files;
+import org.apache.iceberg.deletes.RoaringPositionBitmaps;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.puffin.BlobMetadata;
 import org.apache.iceberg.puffin.FileMetadata;
 import org.apache.iceberg.puffin.Puffin;
 import org.apache.iceberg.puffin.PuffinReader;
+import org.apache.iceberg.util.Pair;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
+
+import static org.apache.iceberg.puffin.StandardBlobTypes.DV_V1;
 
 @Command(
         name = "puffin",
@@ -37,6 +45,9 @@ public class Console
     @Option(names = "--path", paramLabel = "<path>", description = "File path to Puffin")
     public String path;
 
+    private static final int BITMAP_DATA_OFFSET = 4;
+    private static final int MAGIC_NUMBER = 1681511377;
+
     @Override
     public Integer call()
     {
@@ -48,6 +59,7 @@ public class Console
         try {
             InputFile inputFile = Files.localInput(path);
             try (PuffinReader reader = Puffin.read(inputFile).build()) {
+                // metadata
                 FileMetadata metadata = reader.fileMetadata();
                 for (BlobMetadata blobMetadata : metadata.blobs()) {
                     System.out.println("type: " + blobMetadata.type());
@@ -61,11 +73,41 @@ public class Console
                     System.out.println();
                 }
                 System.out.println("properties: " + metadata.properties());
+                // blobs
+                for (Pair<BlobMetadata, ByteBuffer> read : reader.readAll(metadata.blobs())) {
+                    BlobMetadata blobMetadata = read.first();
+                    System.out.println("type: " + blobMetadata.type());
+                    if (blobMetadata.type().equals(DV_V1)) {
+                        ByteBuffer buffer = read.second();
+                        int bitmapDataLength = buffer.getInt();
+                        RoaringPositionBitmaps bitmap = deserializeBitmap(buffer.array(), bitmapDataLength);
+                        List<Long> deletedRows = new ArrayList<>();
+                        bitmap.forEach(deletedRows::add);
+                        System.out.println("deletedRows: " + deletedRows);
+                    }
+                }
             }
         }
         catch (RuntimeException | IOException e) {
             return false;
         }
         return true;
+    }
+
+    private static RoaringPositionBitmaps deserializeBitmap(byte[] bytes, int bitmapDataLength)
+    {
+        ByteBuffer bitmapData = pointToBitmapData(bytes, bitmapDataLength);
+        int magicNumber = bitmapData.getInt();
+        if (magicNumber != MAGIC_NUMBER) {
+            throw new RuntimeException("Invalid magic number: %s, expected %s".formatted(magicNumber, MAGIC_NUMBER));
+        }
+        return RoaringPositionBitmaps.deserialize(bitmapData);
+    }
+
+    private static ByteBuffer pointToBitmapData(byte[] bytes, int bitmapDataLength)
+    {
+        ByteBuffer bitmapData = ByteBuffer.wrap(bytes, BITMAP_DATA_OFFSET, bitmapDataLength);
+        bitmapData.order(ByteOrder.LITTLE_ENDIAN);
+        return bitmapData;
     }
 }
